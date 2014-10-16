@@ -592,11 +592,15 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 	if (err)
 		goto out_free_ufs;
 
-	/* FIXME: workdir is not needed for a R/O mount */
+	/* We don't support workdir */
+	if( ufs->config.workdir ) {
+		pr_err("overlayfs: workdir is not supported in this variant\n");
+		goto out_free_config;
+	}
+
 	err = -EINVAL;
-	if (!ufs->config.upperdir || !ufs->config.lowerdir ||
-	    !ufs->config.workdir) {
-		pr_err("overlayfs: missing upperdir or lowerdir or workdir\n");
+	if (!ufs->config.upperdir || !ufs->config.lowerdir) {
+		pr_err("overlayfs: missing upperdir or lowerdir\n");
 		goto out_free_config;
 	}
 
@@ -612,26 +616,10 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 	if (err)
 		goto out_put_upperpath;
 
-	err = ovl_mount_dir(ufs->config.workdir, &workpath);
-	if (err)
-		goto out_put_lowerpath;
-
 	err = -EINVAL;
 	if (!S_ISDIR(upperpath.dentry->d_inode->i_mode) ||
-	    !S_ISDIR(lowerpath.dentry->d_inode->i_mode) ||
-	    !S_ISDIR(workpath.dentry->d_inode->i_mode)) {
-		pr_err("overlayfs: upperdir or lowerdir or workdir not a directory\n");
-		goto out_put_workpath;
-	}
-
-	if (upperpath.mnt != workpath.mnt) {
-		pr_err("overlayfs: workdir and upperdir must reside under the same mount\n");
-		goto out_put_workpath;
-	}
-	if (upperpath.dentry == workpath.dentry ||
-	    d_ancestor(upperpath.dentry, workpath.dentry) ||
-	    d_ancestor(workpath.dentry, upperpath.dentry)) {
-		pr_err("overlayfs: workdir and upperdir must be separate subtrees\n");
+	    !S_ISDIR(lowerpath.dentry->d_inode->i_mode) ) {
+		pr_err("overlayfs: upperdir or lowerdir not a directory\n");
 		goto out_put_workpath;
 	}
 
@@ -666,13 +654,7 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 		goto out_put_upper_mnt;
 	}
 
-	ufs->workdir = ovl_workdir_create(ufs->upper_mnt, workpath.dentry);
-	err = PTR_ERR(ufs->workdir);
-	if (IS_ERR(ufs->workdir)) {
-		pr_err("overlayfs: failed to create directory %s/%s\n",
-		       ufs->config.workdir, OVL_WORKDIR_NAME);
-		goto out_put_lower_mnt;
-	}
+	ufs->workdir = upperpath.dentry;
 
 	/*
 	 * Make lower_mnt R/O.  That way fchmod/fchown on lower file
@@ -695,7 +677,6 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 
 	mntput(upperpath.mnt);
 	mntput(lowerpath.mnt);
-	path_put(&workpath);
 
 	oe->__upperdentry = dget(upperpath.dentry);
 	oe->lowerdentry = lowerpath.dentry;
@@ -711,13 +692,13 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 	return 0;
 
 out_put_workdir:
-	dput(ufs->workdir);
+//	dput(ufs->workdir);
 out_put_lower_mnt:
 	mntput(ufs->lower_mnt);
 out_put_upper_mnt:
 	mntput(ufs->upper_mnt);
 out_put_workpath:
-	path_put(&workpath);
+//	path_put(&workpath);
 out_put_lowerpath:
 	path_put(&lowerpath);
 out_put_upperpath:
